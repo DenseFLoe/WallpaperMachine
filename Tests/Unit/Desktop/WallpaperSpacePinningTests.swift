@@ -151,6 +151,21 @@ final class WallpaperSpacePinningTests: XCTestCase {
         XCTAssertTrue(rig.log.events.isEmpty)
     }
 
+    func testAnOrdinaryUnreadyWindowOnAReadyDesktopStaysVisibleAtOrderIn() {
+        let rig = PinRig()
+        rig.pins = [1: .init(space: 5, content: .ready)]
+        rig.pinning.start()
+        defer { rig.pinning.stop() }
+        let opening = rig.window(11)
+        opening.isOrderedIn = false
+        opening.isReadyForDisplay = false
+
+        rig.announceOpening(opening, reason: "open")
+
+        XCTAssertFalse(opening.allSpaces, "the opening window was pinned")
+        XCTAssertFalse(opening.hidden, "its switch-hold picture must stay visible at order-in")
+    }
+
     func testPreloadingAnotherDesktopStaysHiddenUntilItsFirstFrame() {
         let rig = PinRig()
         rig.pins = [1: .init(space: 5, content: .loading,

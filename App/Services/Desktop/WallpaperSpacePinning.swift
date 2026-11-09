@@ -280,7 +280,7 @@ final class WallpaperSpacePinning {
             if !placement.onCurrentDesktop { awayWindows.insert(window.number) }
         }
         if (placement.onCurrentDesktop && concealedSince[display] != nil)
-            || !window.isReadyForDisplay,
+            || (reason == .preload && !window.isReadyForDisplay),
            concealedWindows.insert(window.number).inserted {
             window.setConcealed(true, fade: 0)
         }
