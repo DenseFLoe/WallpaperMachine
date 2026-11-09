@@ -499,6 +499,59 @@ final class NativeVideoWallpaperHostTests: XCTestCase {
         XCTAssertFalse(prepared.isStopped)
     }
 
+    func testAPromotedPreloadWithoutAFrameIsRestartedOnceThenReportedAsFailed() async throws {
+        let recorder = Recorder()
+        let descriptor = wallpaper(mediaPath: "/tmp/network/promoted.mp4")
+        let host = makeHost(
+            wallpapers: [], recorder: recorder,
+            storage: { $0.path == descriptor.mediaPath ? .networkVolume : .internalVolume },
+            manualLimits: true)
+        defer { host.shutdown() }
+        host.setKeptWallpapers([7: [descriptor.wallpaperId]])
+        try await host.preload(descriptor)
+        let surface = try XCTUnwrap(surfacesMade[7])
+        recorder.storageQueries.removeAll()
+
+        await host.apply([descriptor])
+        XCTAssertTrue(surface.isPlaying)
+        XCTAssertEqual(recorder.made.count, 1, "the preloaded player is promoted")
+        guard host.armedFirstFrameWatchCountForTest == 1 else {
+            return XCTFail("a promoted clip without a picture needs a first-frame deadline")
+        }
+        await sleeper.waitUntilPending()
+        XCTAssertEqual(recorder.storageQueries, [descriptor.mediaPath])
+        XCTAssertEqual(sleeper.requested.last, .seconds(90))
+
+        sleeper.fireNext()
+        await sleeper.waitUntilPending()
+        XCTAssertEqual(surface.restartReasons.count, 1)
+        XCTAssertTrue(recorder.rejected.isEmpty)
+        XCTAssertEqual(sleeper.requested.last, .seconds(90))
+
+        sleeper.fireNext()
+        await settle { surface.isStopped }
+        XCTAssertEqual(surface.restartReasons.count, 1)
+        XCTAssertEqual(recorder.rejected.map(\.id), [descriptor.wallpaperId])
+        XCTAssertTrue(host.isEmpty)
+    }
+
+    func testAPromotedPreloadWithAFrameNeedsNoFirstFrameDeadline() async throws {
+        let recorder = Recorder()
+        surfaceReadyAtBirth = true
+        let host = makeHost(wallpapers: [], recorder: recorder, manualLimits: true)
+        defer { host.shutdown() }
+        host.setKeptWallpapers([7: ["300"]])
+        try await host.preload(wallpaper())
+        let surface = try XCTUnwrap(surfacesMade[7])
+
+        await host.apply([wallpaper()])
+        XCTAssertTrue(surface.isPlaying)
+        XCTAssertEqual(recorder.made.count, 1)
+        XCTAssertEqual(recorder.states.last?.phase, .ready)
+        XCTAssertEqual(host.armedFirstFrameWatchCountForTest, 0)
+        XCTAssertTrue(surface.restartReasons.isEmpty)
+    }
+
     func testAPreloadedClipAnswersAReplicaWithoutResumingOrOpeningAnotherPlayer() async throws {
         let center = NotificationCenter()
         let recorder = Recorder()

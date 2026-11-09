@@ -1320,7 +1320,7 @@ final class NativeVideoWallpaperHost {
     }
 
     /// Makes the clip the display keeps for `wallpaper` its live one again, when it is the same
-    /// file: no admission, no new window, no wait for a first picture.
+    /// file: no admission or new window.
     private func resumeKept(_ wallpaper: BridgeNativeVideoWallpaper, displayID: UInt32) -> Bool {
         guard let clip = kept[displayID]?[wallpaper.wallpaperId] else { return false }
         kept[displayID]?[wallpaper.wallpaperId] = nil
@@ -1336,6 +1336,11 @@ final class NativeVideoWallpaperHost {
         guard surfaces[displayID] === clip.surface else { return true }
         if let frame = currentFrame(of: displayID) { clip.surface.setScreenFrame(frame) }
         update(surface: clip.surface, with: wallpaper, displayID: displayID)
+        if !clip.surface.isReadyForDisplay {
+            armFirstFrameWatch(
+                displayID: displayID, surface: clip.surface,
+                url: URL(fileURLWithPath: clip.descriptor.mediaPath), restarted: false)
+        }
         AppLog.info("native video wallpaper \(wallpaper.wallpaperId): runs again on "
             + "\(DiagnosticEnvironment.display(displayID)) without opening", load: clip.load)
         return true
