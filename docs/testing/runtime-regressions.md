@@ -174,6 +174,12 @@ device.
   bloom with `clearenabled: false`, bloom and colour options (two copies), colour
   options alone, HDR bloom, bloom over lenses (the scene's image a pooled trade's
   source, whose image set follows the trade) and 4x MSAA: same frames, no blits.
+  With scene clearing disabled, both the ordinary graph and reordered draws preserve
+  the output on its first partial or blended write; discarding that image reads undefined
+  pixels and makes even two runs of the same path disagree. Proven full overwrites still
+  elide their load. `TransparentSortingGpu.SortingAroundAnOmittedLayerPreservesTheUnclearedOutputWithoutRebuilding`
+  moves visible and omitted layers through the sorting order: the first draw keeps loading
+  the output, every pixel stays identical and the graph is never rebuilt.
   The copy trade's source must be single-sampled, in no pooled trade and not a layer
   composite, the copy's name at most a pooled source; nothing may touch the copy's
   name between the copy and the trade, and the source's next writer is a draw or
