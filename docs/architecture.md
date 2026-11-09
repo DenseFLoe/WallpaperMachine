@@ -800,7 +800,11 @@ verdict.
 Each renderer also reports whether its committed scene reads system audio through
 `owe_scene_wallpaper_set_audio_requirement_callback`. The report travels like pointer
 capability: a latest-value relay per renderer object into the core actor, an observer on
-snapshot publication, and a bridge relay that re-evaluates capture. The system-audio tap runs
+snapshot publication, and a bridge relay that re-evaluates capture. Audio capability reports
+also update parked and preloaded runtimes, with the same renderer-instance validation;
+only active handles enter the observer's demand set. Promoting a prepared scene therefore
+publishes its retained capability without another native report, while parked handles stay
+unavailable to ordinary commands. The system-audio tap runs
 only for `audio_response_enabled && scene reads audio && !paused`, or for a subscribed web page,
 so plain video wallpapers never open it; see [audio response](features/audio-response.md).
 

@@ -1781,7 +1781,7 @@ impl Message<messages::NativeAudioRequirementChanged> for EngineActor {
         msg: messages::NativeAudioRequirementChanged,
         _ctx: &mut Context<Self, Self::Reply>,
     ) {
-        let changed = self.state.scene_mut(msg.handle).is_ok_and(|runtime| {
+        let changed = self.state.scene_for_audio_report_mut(msg.handle).is_some_and(|runtime| {
             runtime.apply_audio_requirement(&msg.renderer_instance, msg.requires_audio)
         });
         if changed {

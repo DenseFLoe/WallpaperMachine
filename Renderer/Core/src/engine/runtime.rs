@@ -1378,6 +1378,13 @@ impl SceneRuntime {
         };
         Ok(Self::assemble(None, opened, handle, desc, state, Arc::new(|_| {}), actor, 1))
     }
+
+    /// Enables the normal report lifetime/identity checks without a native window.
+    #[cfg(test)]
+    pub(crate) fn enable_audio_reports_for_test(&mut self) -> Arc<()> {
+        self.window = Some(WallpaperWindow::windowless_for_test());
+        self.audio_relay.renderer_instance.clone()
+    }
 }
 
 impl Drop for SceneRuntime {

@@ -900,6 +900,13 @@ engine to redo, and when.
   remaining visible. Explicit display destruction and unload still release the retained windows;
   `performance_settings::unload_reports_a_failure_to_release_prepared_desktops_and_can_retry`
   covers release errors and retry. Device-free; no window or desktop.
+- **Preloaded scenes retain audio capability until activation** — core's
+  `engine::actor::space_preloading::tests::preloaded_audio_demand_is_retained_until_promotion_without_exposing_parked_commands`
+  delivers real actor notifications to a windowless runtime, checks that parked demand
+  neither enters the active observer nor enables ordinary commands, and promotes the same
+  handle without a load or another capability report. Stale renderer identities and unknown
+  handles are ignored; a current report can still withdraw demand after promotion. This
+  exercises capability retention and publication, not native capture or desktop behavior.
 - **Repeated desktop wallpapers have independent transition pictures** —
   `WallpaperSpaceReplicasTests` covers A–B–A–B placement before presentation, A–B–C–D creating no
   replicas, one shared image per wallpaper/display, event-only refresh, memory/choice cleanup,

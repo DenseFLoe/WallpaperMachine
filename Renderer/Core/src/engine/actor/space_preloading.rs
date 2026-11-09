@@ -130,8 +130,83 @@ impl EngineActor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kameo::actor::Spawn;
+    use std::sync::{Arc, Mutex};
     use crate::engine::actor::main_display_tests::{RuntimeFacade, builtin, running_on, scene};
     use crate::engine::actor::space_parking_tests::{parked_on, path, show, two_displays};
+    use crate::engine::messages::NativeAudioRequirementChanged;
+
+    /// Delivers the real notification messages and returns the actor after draining them.
+    async fn report_audio_requirements(
+        mut actor: EngineActor,
+        reports: Vec<NativeAudioRequirementChanged>,
+    ) -> EngineActor {
+        let prepared = EngineActor::prepare();
+        let actor_ref = prepared.actor_ref().clone();
+        actor.weak_self = actor_ref.downgrade();
+        let join = prepared.spawn(actor);
+        for report in reports {
+            actor_ref.ask(report).await.unwrap();
+        }
+        actor_ref.stop_gracefully().await.unwrap();
+        actor_ref.wait_for_shutdown().await;
+        join.await.unwrap().unwrap().0
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn preloaded_audio_demand_is_retained_until_promotion_without_exposing_parked_commands() {
+        let mut actor = two_displays();
+        let facade = RuntimeFacade::default();
+        actor.set_parked_scenes(1, vec![path("aurora"), path("basalt")]).unwrap();
+        show(&mut actor, &facade, &builtin(), "aurora");
+        let weak = actor.weak_self.clone();
+        let mut token = None;
+        actor.preload_scene_with(scene(&builtin(), "basalt"), |handle, desc| {
+            let mut runtime = SceneRuntime::windowless_for_test(
+                handle, desc, &SceneRuntimeState::try_from(desc)?, weak,
+            )?;
+            runtime.presented_for_test = true;
+            token = Some(runtime.enable_audio_reports_for_test());
+            Ok(runtime)
+        }).unwrap();
+        let handle = parked_on(&actor, &builtin())[0].1;
+        let token = token.unwrap();
+        actor.finish_scene_preload(handle, false).unwrap();
+        assert!(actor.state.scene_mut(handle).is_err(), "a preload is not a command target");
+
+        let snapshots = actor.snapshots.clone();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let observed = events.clone();
+        snapshots.audio_requirement().set_callback(Some(Arc::new(move |handle, required| {
+            observed.lock().unwrap().push((handle, required));
+        })));
+        actor = report_audio_requirements(actor, vec![
+            NativeAudioRequirementChanged { handle, renderer_instance: token.clone(), requires_audio: true },
+            NativeAudioRequirementChanged { handle, renderer_instance: Arc::new(()), requires_audio: false },
+            NativeAudioRequirementChanged { handle: SceneHandle::new(u64::MAX), renderer_instance: token.clone(), requires_audio: true },
+        ]).await;
+        assert!(actor.state.display_records.iter().flat_map(|record| &record.parked)
+            .find(|parked| parked.handle == handle).unwrap().runtime.requires_audio(),
+            "the initial capability report must survive while parked");
+        assert!(actor.state.scene_mut(handle).is_err());
+        assert!(!snapshots.audio_requirement().requires_audio(handle));
+        assert!(events.lock().unwrap().is_empty(), "parked demand must not start capture");
+
+        facade.forget();
+        facade.update(&mut actor, |model| model.apply_reconcile(&[scene(&builtin(), "basalt")])).unwrap();
+        actor.publish_snapshot();
+        assert!(facade.jobs.borrow().is_empty(), "promotion must reuse the prepared runtime");
+        assert_eq!(running_on(&actor, &builtin()).1, handle);
+        assert!(snapshots.audio_requirement().requires_audio(handle));
+        assert_eq!(*events.lock().unwrap(), vec![(handle, true)]);
+
+        actor = report_audio_requirements(actor, vec![
+            NativeAudioRequirementChanged { handle, renderer_instance: token, requires_audio: false },
+            NativeAudioRequirementChanged { handle, renderer_instance: Arc::new(()), requires_audio: true },
+        ]).await;
+        assert!(!actor.state.scene_mut(handle).unwrap().requires_audio());
+        assert_eq!(*events.lock().unwrap(), vec![(handle, true), (handle, false)]);
+    }
 
     #[test]
     fn unvisited_wallpaper_is_prepared_without_changing_the_live_scene_and_resumes_without_loading()

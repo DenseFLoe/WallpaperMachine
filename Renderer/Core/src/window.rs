@@ -902,6 +902,12 @@ impl NormalizedMousePosition {
 }
 
 impl WallpaperWindow {
+    /// Stands in for a retained window without creating any AppKit objects.
+    #[cfg(test)]
+    pub(crate) fn windowless_for_test() -> Self {
+        Self { native: None }
+    }
+
     #[must_use]
     pub fn builder(display: DisplayDesc) -> WallpaperWindowBuilder {
         WallpaperWindowBuilder {
