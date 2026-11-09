@@ -911,7 +911,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             sources: { [weak self] in self?.spaceReplicaSources() ?? [] }, mover: mover)
         spaceReplicas = replicas
         let pinning = WallpaperSpacePinning(
-            windows: { [weak self] in SystemPinnableWindow.all(wallpaperIDs: self?.wallpaperIDsByWindow() ?? [:]) },
+            windows: { [weak self] in
+                SystemPinnableWindow.all(wallpaperIDs: self?.wallpaperIDsByWindow() ?? [:]) { number, display, wallpaper in
+                    self?.wallpaperWindowIsReady(number: number, display: display, wallpaper: wallpaper) ?? false
+                }
+            },
             pins: { [weak self] in self?.spacePins() ?? [:] },
             holding: { [weak self] display in self?.switchHold?.isHolding(display) ?? false },
             mover: mover)

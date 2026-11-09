@@ -262,6 +262,14 @@ extension AppDelegate {
         return ids
     }
 
+    /// Whether this exact scene window, or its page or clip host, has a picture.
+    func wallpaperWindowIsReady(number: Int, display: UInt32?, wallpaper: String?) -> Bool {
+        if store?.sceneWindows().contains(where: { Int($0.windowNumber) == number && $0.ready }) == true { return true }
+        guard let display, let wallpaper else { return false }
+        return webWallpaperHost?.wallpaperIsReady(wallpaper, on: display) == true
+            || nativeVideoHost?.wallpaperIsReady(wallpaper, on: display) == true
+    }
+
     /// The wallpaper each wallpaper window shows, by window number.
     func wallpaperIDsByWindow() -> [Int: String] {
         var ids: [Int: String] = [:]

@@ -37,6 +37,8 @@ protocol WallpaperPinnableWindow {
     /// Whether the window is ordered in: a host's new window is listed, with its wallpaper, before
     /// its page or clip is ready and the window is presented.
     var isOrderedIn: Bool { get }
+    /// Whether this window's renderer or host has produced its first frame.
+    var isReadyForDisplay: Bool { get }
     var joinsAllSpaces: Bool { get nonmutating set }
     /// Hides the window at once, on screen before it returns, or shows it again over `fade`
     /// seconds.
@@ -209,9 +211,10 @@ final class WallpaperSpacePinning {
             }
             let placement = Self.placement(of: window.wallpaperID, in: pin)
             if !placement.onCurrentDesktop, pin.space != nil { awayWindows.insert(number) }
-            // Only a window that belongs on the desktop being loaded is hidden; one kept for
-            // another desktop is not on screen.
-            let hide = concealed.contains(display) && placement.onCurrentDesktop
+            // An unfinished background preload stays transparent on its own desktops too,
+            // so arriving during preparation still shows the desktop's poster.
+            let hide = (concealed.contains(display) && placement.onCurrentDesktop)
+                || (!placement.onCurrentDesktop && !window.isReadyForDisplay)
             // Hidden before it moves, so the old picture never reaches the new desktop.
             if hide, concealedWindows.insert(number).inserted { window.setConcealed(true, fade: 0) }
             if window.joinsAllSpaces { window.joinsAllSpaces = false }
@@ -276,7 +279,8 @@ final class WallpaperSpacePinning {
             if let spaces = placement.spaces { Self.put(window.number, on: spaces, current: pin.space, mover: mover) }
             if !placement.onCurrentDesktop { awayWindows.insert(window.number) }
         }
-        if placement.onCurrentDesktop, concealedSince[display] != nil,
+        if (placement.onCurrentDesktop && concealedSince[display] != nil)
+            || !window.isReadyForDisplay,
            concealedWindows.insert(window.number).inserted {
             window.setConcealed(true, fade: 0)
         }
@@ -296,6 +300,7 @@ final class WallpaperSpacePinning {
             let alreadyShowing = !wasConcealed && pin.incoming.map { incoming in
                 windows.contains { window in
                     window.displayID == display && window.wallpaperID == incoming && window.isOrderedIn
+                        && window.isReadyForDisplay
                         && !concealedWindows.contains(window.number)
                         && pin.space.map { mover?.spaces(ofWindow: window.number)?.contains($0) == true } == true
                 }
@@ -346,11 +351,15 @@ final class WallpaperSpacePinning {
 struct SystemPinnableWindow: WallpaperPinnableWindow {
     let window: NSWindow
     var wallpaperID: String? = nil
+    var isReadyForDisplay = false
 
     /// Every wallpaper window, each with its wallpaper from `wallpaperIDs`, by window number.
-    static func all(wallpaperIDs: [Int: String] = [:]) -> [any WallpaperPinnableWindow] {
+    static func all(wallpaperIDs: [Int: String] = [:],
+                    ready: (Int, UInt32?, String?) -> Bool = { _, _, _ in false }) -> [any WallpaperPinnableWindow] {
         WallpaperPresentationPolicy.wallpaperWindows().map {
-            SystemPinnableWindow(window: $0, wallpaperID: wallpaperIDs[$0.windowNumber])
+            var window = SystemPinnableWindow(window: $0, wallpaperID: wallpaperIDs[$0.windowNumber])
+            window.isReadyForDisplay = ready(window.number, window.displayID, window.wallpaperID)
+            return window
         }
     }
 

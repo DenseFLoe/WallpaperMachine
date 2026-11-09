@@ -9,6 +9,7 @@ private final class FakeWindow: WallpaperPinnableWindow {
     var displayID: UInt32?
     var wallpaperID: String?
     var isOrderedIn = true
+    var isReadyForDisplay = true
     var allSpaces = true
     var hidden = false
     var lastFade: TimeInterval?
@@ -150,16 +151,42 @@ final class WallpaperSpacePinningTests: XCTestCase {
         XCTAssertTrue(rig.log.events.isEmpty)
     }
 
-    func testPreloadingAnotherDesktopWhileTheCurrentOneLoadsDoesNotHideItsWindow() {
+    func testPreloadingAnotherDesktopStaysHiddenUntilItsFirstFrame() {
         let rig = PinRig()
         rig.pins = [1: .init(space: 5, content: .loading,
             desktops: ["aurora": [5], "basalt": [6]], incoming: "aurora")]
         rig.pinning.start()
         defer { rig.pinning.stop() }
         let opening = rig.window(11, wallpaper: "basalt")
+        opening.isReadyForDisplay = false
         rig.announceOpening(opening, reason: "preload")
         XCTAssertEqual(opening.spaces, [6])
-        XCTAssertFalse(opening.hidden, "preparation leaves the other desktop's frame visible")
+        XCTAssertTrue(opening.hidden, "the loading window cannot cover that desktop's poster")
+        rig.pinning.update()
+        XCTAssertTrue(opening.hidden, "an update while it prepares must not reveal it")
+        opening.isReadyForDisplay = true
+        rig.pinning.update()
+        XCTAssertFalse(opening.hidden, "the other desktop can show the prepared frame")
+    }
+
+    func testArrivingBeforeAPreloadHasAFrameKeepsThePosterVisible() {
+        let rig = PinRig()
+        let desktops: [String: Set<UInt64>] = ["aurora": [5], "basalt": [6]]
+        rig.pins = [1: .init(space: 5, content: .ready, desktops: desktops)]
+        rig.pinning.start()
+        defer { rig.pinning.stop() }
+        let incoming = rig.window(11, space: 6, wallpaper: "basalt")
+        incoming.isReadyForDisplay = false
+        rig.announceOpening(incoming, reason: "preload")
+        rig.pins = [1: .init(space: 6, content: .loading, desktops: desktops, incoming: "basalt")]
+        rig.pinning.update()
+        XCTAssertTrue(incoming.hidden)
+        XCTAssertTrue(rig.pinning.isConcealed(1), "an ordered window with no frame is still loading")
+        incoming.isReadyForDisplay = true
+        rig.pins = [1: .init(space: 6, content: .ready, desktops: desktops)]
+        rig.pinning.update()
+        XCTAssertFalse(incoming.hidden)
+        XCTAssertFalse(rig.pinning.isConcealed(1))
     }
 
     func testPreloadedWindowBelongsToItsDestinationBeforeItIsOrderedIn() {

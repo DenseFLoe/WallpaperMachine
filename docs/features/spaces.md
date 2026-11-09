@@ -136,7 +136,9 @@ and the hosts name each window's wallpaper):
   ends) a kept wallpaper runs on at once: nothing is hidden or moved and the switch hold takes no
   picture. A wallpaper that is not loaded opens in a new window, which is hidden and kept off the
   other desktops before it is first ordered in (the renderer's `wallpaperLayerInstalled`
-  notification with reason `open`). A window that belongs on the new desktop and is not ready
+  notification with reason `open`). Background preloads remain transparent until their first
+  frame, including while the person arrives on that desktop; being ordered in does not establish
+  readiness. A window that belongs on the new desktop and is not ready
   there is made fully transparent before it moves: a window's alpha reaches the screen only with
   the next Core Animation commit while the move takes effect at once, so the hide is flushed
   (`CATransaction.flush()`) before the move; without it the window arrived opaque and the old
