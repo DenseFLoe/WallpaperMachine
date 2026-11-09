@@ -263,15 +263,16 @@ final class WallpaperSpacePinning {
     /// where it belongs.
     private func windowWillOpen(_ note: Notification) {
         guard mover != nil,
-              let reason = note.userInfo?[WallpaperSwitchHoldNotification.reasonKey] as? String,
-              reason == "preload" || reason == WallpaperSwitchHoldNotification.Reason.open.rawValue,
+              let rawReason = note.userInfo?[WallpaperSwitchHoldNotification.reasonKey] as? String,
+              let reason = WallpaperSwitchHoldNotification.Reason(rawValue: rawReason),
+              reason == .preload || reason == .open,
               let display = (note.userInfo?[WallpaperSwitchHoldNotification.displayIDKey] as? NSNumber)?.uint32Value,
               lastPins[display] != nil, let window = openedWindow(note) else { return }
         window.joinsAllSpaces = false
         pinnedWindows.insert(window.number)
         guard let pin = lastPins[display] else { return }
         let placement = Self.placement(of: window.wallpaperID, in: pin)
-        if reason == "preload", let mover {
+        if reason == .preload, let mover {
             if let spaces = placement.spaces { Self.put(window.number, on: spaces, current: pin.space, mover: mover) }
             if !placement.onCurrentDesktop { awayWindows.insert(window.number) }
         }
@@ -359,7 +360,8 @@ struct SystemPinnableWindow: WallpaperPinnableWindow {
         guard let layer = note.object as? CALayer,
               let window = (layer.delegate as? NSView)?.window
                 ?? NSApp.windows.first(where: { $0.contentView?.layer === layer }) else { return nil }
-        return SystemPinnableWindow(window: window, wallpaperID: note.userInfo?["wallpaperID"] as? String)
+        return SystemPinnableWindow(window: window,
+            wallpaperID: note.userInfo?[WallpaperSwitchHoldNotification.wallpaperIDKey] as? String)
     }
 
     var number: Int { window.windowNumber }

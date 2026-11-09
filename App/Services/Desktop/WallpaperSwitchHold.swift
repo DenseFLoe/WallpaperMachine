@@ -13,10 +13,14 @@ enum WallpaperSwitchHoldNotification {
     static let displayIDKey = "displayID"
     /// Why the layer was installed, one of `Reason`.
     static let reasonKey = "reason"
+    /// The preloaded wallpaper's id, a `String`; absent for other layer installs.
+    static let wallpaperIDKey = "wallpaperID"
 
     enum Reason: String {
         /// A window was just opened.
         case open
+        /// A background desktop's layer; pinning places it, and the switch hold ignores it.
+        case preload
         /// A scene replacement installed a fresh layer for its renderer.
         case replace
         /// A display reconfigure installed a fresh layer. A renderer with a picture keeps it; one
@@ -334,6 +338,7 @@ final class WallpaperSwitchHold {
               let display = (values[WallpaperSwitchHoldNotification.displayIDKey] as? NSNumber)?.uint32Value,
               let reason = (values[WallpaperSwitchHoldNotification.reasonKey] as? String)
                 .flatMap(WallpaperSwitchHoldNotification.Reason.init(rawValue:)),
+              reason != .preload,
               let ticket = tickets[display], ticket.phase != .dismissing else { return }
         if reason == .reconfigure {
             // A renderer that is showing a picture keeps it through a reconfigure, so a veil
