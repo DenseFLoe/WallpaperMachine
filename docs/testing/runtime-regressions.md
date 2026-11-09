@@ -227,9 +227,15 @@ device.
   alpha 0 leave the draw out, the others draw it, and six frames match
   `MetalRender::SetSkipNoopDrawsForTests(false)`.
   `.ADrawThatIsNotProvenToLeaveItsTargetAsItIsIsDrawn`: alpha 0.5, a `normal` or
-  `multiply` blend, a colour or alpha from a varying and a colour of 1e60 are all
-  drawn, frames identical; letting a replacing blend through changes the frames, and
-  dropping the product bound leaves out the infinite colour.
+  `multiply` blend and a colour or alpha from a varying are all drawn, frames identical;
+  letting a replacing blend through changes the frames.
+  `.AnOverflowingColourAtZeroAlphaIsNotSkipped` multiplies finite uniform operands
+  (`1e30 * 1e30`) at runtime and verifies that the draw reaches the scene output with no
+  no-op skip. It makes no pixel-equivalence claim for non-finite results under Metal fast math;
+  dropping the CPU product bound leaves out that draw and fails the test.
+  `.AFiniteColourProductAtZeroAlphaIsSkippedAndKeepsEveryFrame`
+  uses the same product with finite results: only the two zero-alpha frames skip the draw,
+  and all six frames match the unoptimized path exactly.
   `.AHiddenLayersClearsAreLeftOutAndItsPictureComesBackAsItWas`: a panel through two
   effects hidden by script for four frames (one of them abandoned), targets shared and
   apart: each left-out clear takes its render pass with it and every frame matches
