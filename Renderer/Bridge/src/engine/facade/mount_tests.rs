@@ -367,12 +367,24 @@ async fn fm04_shared_turn_excludes_snapshot_core_and_stale_handle_evidence() {
     ));
     pending(first.as_mut());
     pending(second.as_mut());
-    assert!(trace.lock().unwrap().iter().all(|event| *event == "a-snapshot"),
-        "the second turn cannot inspect or mutate the scene while the first waits");
+    {
+        let trace = trace.lock().unwrap();
+        assert!(trace.contains(&"a-snapshot"), "the first turn took its baseline");
+        assert!(!trace.contains(&"b-snapshot"));
+        assert!(!trace.contains(&"b-core"));
+        assert!(trace.iter().all(|event| *event == "a-snapshot"),
+            "the second turn cannot inspect or mutate the scene while the first waits");
+    }
     callback(a.handle);
     pending(second.as_mut());
-    assert!(trace.lock().unwrap().iter().all(|event| *event == "a-snapshot"),
-        "the first turn still owns the scene until it consumes readiness");
+    {
+        let trace = trace.lock().unwrap();
+        assert!(trace.contains(&"a-snapshot"), "the first turn still owns its baseline");
+        assert!(!trace.contains(&"b-snapshot"));
+        assert!(!trace.contains(&"b-core"));
+        assert!(trace.iter().all(|event| *event == "a-snapshot"),
+            "the first turn still owns the scene until it consumes readiness");
+    }
     assert_eq!(completed(first.as_mut()).unwrap(), vec![a]);
     pending(second.as_mut());
     {
