@@ -514,7 +514,7 @@ pub(crate) async fn reconcile_with_readiness<S, C, CF, P, PF>(
     prune: P,
 ) -> Result<Vec<SceneResult>, EngineError>
 where
-    S: FnOnce() -> (Vec<DisplaySnapshotEntry>, Vec<SceneWindowEntry>),
+    S: Fn() -> (Vec<DisplaySnapshotEntry>, Vec<SceneWindowEntry>),
     C: FnOnce(Vec<SceneDesc>) -> CF,
     CF: Future<Output = Result<Vec<SceneResult>, EngineError>>,
     P: FnOnce() -> PF,
@@ -523,8 +523,18 @@ where
     let _turn = reconcile_turn.lock().await;
     let checkpoint = readiness.checkpoint();
     let (live, windows) = snapshot();
-    let changed = displays_awaiting_first_frame(&live, &windows, &scenes);
+    let mut changed = displays_awaiting_first_frame(&live, &windows, &scenes);
     let results = mutate_scenes_and_prune(audio_mutation, || core(scenes), prune).await?;
+    if !changed.is_empty() {
+        // A preload may have presented before the checkpoint, while its published snapshot
+        // still said loading. Promotion republishes its actual presentation state. Match the
+        // returned handle so a ready window of another generation cannot satisfy this wait.
+        let (_, windows) = snapshot();
+        changed.retain(|display| !windows.iter().any(|window| {
+            window.display_id == *display && window.ready
+                && results.iter().any(|result| result.display_id == *display && result.handle == window.handle)
+        }));
+    }
     readiness
         .await_results(checkpoint, &changed, results, first_frame_timeout)
         .await
