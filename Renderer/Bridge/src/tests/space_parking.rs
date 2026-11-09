@@ -38,6 +38,7 @@ fn window(scene_path: &str, window_number: Option<isize>, parked: bool) -> Scene
         desc: SceneDesc::new(desc, scene_path, "/assets", 30, false),
         window_number,
         parked,
+        ready: true,
     }
 }
 
@@ -89,9 +90,30 @@ async fn each_scene_window_is_named_by_its_wallpaper() {
     assert_eq!(
         bridge.scene_windows(),
         vec![
-            BridgeSceneWindow { display_id: 7, wallpaper_id: "100".into(), window_number: 42, parked: false },
-            BridgeSceneWindow { display_id: 7, wallpaper_id: "200".into(), window_number: 43, parked: true },
+            BridgeSceneWindow { display_id: 7, wallpaper_id: "100".into(), window_number: 42, parked: false, ready: true },
+            BridgeSceneWindow { display_id: 7, wallpaper_id: "200".into(), window_number: 43, parked: true, ready: true },
         ],
         "a scene without a window has nothing to pin"
     );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn preparing_an_unvisited_scene_preserves_selection_assignments_and_saved_options() {
+    let engine = FakeEngineFacade::default();
+    let bridge = bridge(&engine);
+    bridge.inject_scene_project_for_test("100", "Aurora", r#"{"type":"scene","file":"scene.json"}"#).await;
+    bridge.inject_scene_wallpaper_config_for_test("100", "Scene").await;
+    bridge.inject_scene_project_for_test("200", "Basalt", r#"{"type":"scene","file":"scene.json"}"#).await;
+    bridge.inject_scene_wallpaper_config_for_test("200", "Scene").await;
+    bridge.set_display_config_enabled("100".into(), "primary".into(), true).await.unwrap();
+    bridge.apply_wallpaper_options("100".into(), true).await.unwrap();
+    let before = bridge.all_snapshots().await.unwrap();
+    let reply = bridge.preload_desktop_wallpaper(7, "200".into()).await.unwrap();
+    assert!(reply.web.is_none() && reply.video.is_none());
+    assert_eq!(bridge.all_snapshots().await.unwrap(), before, "preparation never commits or selects a wallpaper");
+    let prepared = engine.preloaded_scene_calls();
+    assert_eq!(prepared.len(), 1);
+    assert_eq!(prepared[0].display.display_id, 7);
+    assert!(prepared[0].scene_path.ends_with("/200/project.json"));
+    assert!(prepared[0].audio_muted);
 }

@@ -77,6 +77,9 @@ pub trait EngineFacade: Send + Sync + 'static {
         let _ = (display_id, scene_paths);
         async move { Ok(()) }.boxed()
     }
+    fn preload_scene(&self, _desc: SceneDesc, _render_scale: f64) -> EngineFuture<()> {
+        async move { Err(EngineError::Platform("desktop preloading is unavailable".into())) }.boxed()
+    }
     fn close_all_scenes(&self) -> EngineFuture<()>;
     /// Applies a global pause target to every open scene in one pass: a scene
     /// is paused when `paused` is set (the user's Play/Pause choice, power
@@ -439,7 +442,7 @@ pub(crate) fn displays_awaiting_first_frame(
         .iter()
         .filter(|scene| {
             !windows.iter().any(|window| {
-                window.parked
+                window.parked && window.ready
                     && window.display_id == scene.display.display_id
                     && {
                         let mut kept = window.desc.clone();
@@ -540,6 +543,10 @@ fn first_frame_timeout() -> EngineError {
 }
 
 impl EngineFacade for RealEngineFacade {
+    fn preload_scene(&self, desc: SceneDesc, render_scale: f64) -> EngineFuture<()> {
+        let engine = self.engine.clone();
+        async move { engine.preload_scene(desc, render_scale).await }.boxed()
+    }
     fn update_media(&self, handle: SceneHandle, enabled: bool, state: wallpaper_core::media::MediaPollResult) -> EngineFuture<()> {
         let engine = self.engine.clone();
         async move { engine.update_media(handle, enabled, state).await }.boxed()
@@ -1295,6 +1302,7 @@ pub struct FakeEngineFacade {
     display_paused_calls: Observation<(u32, bool)>,
     /// Every parking list the bridge handed over, by display.
     parked_scene_calls: Observation<(u32, Vec<String>)>,
+    preloaded_scene_calls: Observation<SceneDesc>,
     /// What `scene_windows` reports; a test scripts it.
     scene_windows: Arc<ArcSwap<Vec<SceneWindowEntry>>>,
     /// Every pause value applied to a rendered scene, by its display, in the
@@ -1517,6 +1525,7 @@ impl Default for FakeEngineFacade {
             paused_calls: Observation::new(),
             display_paused_calls: Observation::new(),
             parked_scene_calls: Observation::new(),
+            preloaded_scene_calls: Observation::new(),
             scene_windows: Default::default(),
             scene_pause_log: Observation::new(),
             audio_volume_calls: Observation::new(),
@@ -1868,6 +1877,7 @@ impl FakeEngineFacade {
     pub fn parked_scene_calls(&self) -> Vec<(u32, Vec<String>)> {
         self.parked_scene_calls.snapshot()
     }
+    pub fn preloaded_scene_calls(&self) -> Vec<SceneDesc> { self.preloaded_scene_calls.snapshot() }
 
     /// Makes `scene_windows` report `windows` from now on.
     pub fn set_scene_windows(&self, windows: Vec<SceneWindowEntry>) {
@@ -2326,6 +2336,11 @@ impl EngineFacade for FakeEngineFacade {
             fake.parked_scene_calls.record((display_id, scene_paths));
             Ok(())
         }.boxed()
+    }
+
+    fn preload_scene(&self, desc: SceneDesc, _render_scale: f64) -> EngineFuture<()> {
+        let fake = self.clone();
+        async move { fake.preloaded_scene_calls.record(desc); Ok(()) }.boxed()
     }
 
     fn close_all_scenes(&self) -> EngineFuture<()> {
@@ -2935,6 +2950,7 @@ mod first_frame_tests {
             desc: scene.clone(),
             window_number: Some(4_242),
             parked,
+            ready: true,
         }
     }
 
@@ -2947,6 +2963,11 @@ mod first_frame_tests {
         city.scene_path = "/library/city/project.json".into();
         let live = [live(&shown)];
         assert!(displays_awaiting_first_frame(&live, &[kept(&city, true)], &[city.clone()]).is_empty());
+
+        let mut preparing = kept(&city, true);
+        preparing.ready = false;
+        assert_eq!(displays_awaiting_first_frame(&live, &[preparing], &[city.clone()]), vec![8],
+            "arriving during preload must still wait for the first frame");
 
         // Muted and capped while it waited: applied live, nothing reloads.
         let mut quieter = city.clone();

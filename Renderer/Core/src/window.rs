@@ -285,7 +285,7 @@ unsafe fn install_fresh_layer(
 }
 
 /// Creates the native window for `display`. Main thread only.
-fn open_native(display: &DisplayDesc, style: PlaceholderStyle) -> Result<NativeWindow, EngineError> {
+fn open_native(display: &DisplayDesc, style: PlaceholderStyle, preloaded: Option<String>) -> Result<NativeWindow, EngineError> {
     let mtm = MainThreadMarker::new().ok_or_else(|| {
         EngineError::Platform("wallpaper windows can only be created on the main thread".to_string())
     })?;
@@ -330,12 +330,21 @@ fn open_native(display: &DisplayDesc, style: PlaceholderStyle) -> Result<NativeW
     view.setLayer(Some(layer.as_ref()));
     view.setWantsLayer(true);
 
-    announce_layer_installed(
-        &NSNotificationCenter::defaultCenter(),
-        as_any_object(&layer),
-        display.display_id,
-        LayerInstall::Open,
-    );
+    if let Some(wallpaper) = preloaded {
+        let display = NSNumber::new_u32(display.display_id);
+        let reason = ns_string!("preload");
+        let wallpaper = NSString::from_str(&wallpaper);
+        let objects: [&AnyObject; 3] = [&display, reason, &wallpaper];
+        let info = NSDictionary::<NSString, AnyObject>::from_slices(
+            &[ns_string!("displayID"), ns_string!("reason"), ns_string!("wallpaperID")], &objects);
+        // SAFETY: Objective-C collection generics are erased; all keys and values above are objects.
+        let info = unsafe { objc2::rc::Retained::cast_unchecked::<NSDictionary>(info) };
+        // SAFETY: The center receives a notification name, layer sender and owned dictionary.
+        unsafe { NSNotificationCenter::defaultCenter().postNotificationName_object_userInfo(
+            &NSString::from_str(LAYER_INSTALLED_NOTIFICATION), Some(as_any_object(&layer)), Some(&info)); }
+    } else {
+        announce_layer_installed(&NSNotificationCenter::defaultCenter(), as_any_object(&layer), display.display_id, LayerInstall::Open);
+    }
     window.orderFrontRegardless();
     let number = window.windowNumber();
 
@@ -898,6 +907,7 @@ impl WallpaperWindow {
         WallpaperWindowBuilder {
             display,
             style: PlaceholderStyle::default(),
+            preloaded: None,
         }
     }
 
@@ -1138,9 +1148,12 @@ impl Drop for WallpaperWindow {
 pub struct WallpaperWindowBuilder {
     display: DisplayDesc,
     style: PlaceholderStyle,
+    preloaded: Option<String>,
 }
 
 impl WallpaperWindowBuilder {
+    #[must_use]
+    pub fn preloaded_wallpaper(self, wallpaper: String) -> Self { Self { preloaded: Some(wallpaper), ..self } }
     #[must_use]
     pub fn placeholder_style(self, style: PlaceholderStyle) -> Self {
         Self { style, ..self }
@@ -1154,8 +1167,8 @@ impl WallpaperWindowBuilder {
     /// window cannot be created.
     pub fn open(self) -> Result<WallpaperWindow, EngineError> {
         validate_window_display(&self.display)?;
-        let Self { display, style } = self;
-        let native = MainThread::dispatch(move || open_native(&display, style))?;
+        let Self { display, style, preloaded } = self;
+        let native = MainThread::dispatch(move || open_native(&display, style, preloaded))?;
         Ok(WallpaperWindow {
             native: Some(native),
         })

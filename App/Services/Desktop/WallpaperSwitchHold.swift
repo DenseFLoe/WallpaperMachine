@@ -66,7 +66,7 @@ final class WallpaperSwitchHold {
     /// A requested still on its way, so `stop()` can end the wait.
     private struct Capture {
         let token: UInt64
-        let grab: PosterGrab
+        let grab: DesktopPosterGrab
     }
 
     private final class Ticket {
@@ -190,7 +190,7 @@ final class WallpaperSwitchHold {
             }
             guard shouldHold(display), let layer = layers(display).first else { continue }
             generation += 1
-            let capture = Capture(token: generation, grab: PosterGrab(center: center))
+            let capture = Capture(token: generation, grab: DesktopPosterGrab(center: center))
             captures[display] = capture
             requests.append((display, layer, capture))
         }
@@ -411,54 +411,5 @@ final class WallpaperSwitchHold {
         ticket.cancelTasks()
         ticket.veil.detach()
         onReleased?(display)
-    }
-}
-
-/// One request for a still and the wait for its answer.
-@MainActor
-private final class PosterGrab {
-    private let center: NotificationCenter
-    private var continuation: CheckedContinuation<DesktopPosterFrame?, Never>?
-    private var observer: NSObjectProtocol?
-    private var timeout: Task<Void, Never>?
-
-    init(center: NotificationCenter) { self.center = center }
-
-    /// Asks `layer`'s surface for a frame and waits for it, up to `timeout`. The first frame the
-    /// layer reports is taken whatever it was asked for: another request for the same layer (the
-    /// poster sync's) yields an equally fresh one, and the sync ignores a frame that carries
-    /// this request's context, so the still can never become the desktop poster. The listener
-    /// is in place before the request goes out, because an answer may come back inside it.
-    func run(on layer: CALayer, timeout: Duration,
-             sleep: @escaping @Sendable (Duration) async throws -> Void) async -> DesktopPosterFrame? {
-        await withCheckedContinuation { (continuation: CheckedContinuation<DesktopPosterFrame?, Never>) in
-            self.continuation = continuation
-            observer = center.addObserver(
-                forName: DesktopPosterNotification.ready, object: layer, queue: .main
-            ) { [weak self] notification in
-                MainActor.assumeIsolated {
-                    if let frame = DesktopPosterFrame(userInfo: notification.userInfo) { self?.finish(frame) }
-                }
-            }
-            self.timeout = Task { [weak self] in
-                do { try await sleep(timeout) } catch { return }
-                self?.finish(nil)
-            }
-            center.post(name: DesktopPosterNotification.request, object: layer,
-                        userInfo: [DesktopPosterNotification.Key.context: "switch-hold:" + UUID().uuidString])
-        }
-    }
-
-    /// Ends the wait with no frame.
-    func cancel() { finish(nil) }
-
-    private func finish(_ frame: DesktopPosterFrame?) {
-        guard let continuation else { return }
-        self.continuation = nil
-        if let observer { center.removeObserver(observer) }
-        observer = nil
-        timeout?.cancel()
-        timeout = nil
-        continuation.resume(returning: frame)
     }
 }

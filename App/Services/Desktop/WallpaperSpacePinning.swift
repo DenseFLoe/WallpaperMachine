@@ -106,6 +106,8 @@ final class WallpaperSpacePinning {
     /// Displays that reached the ceiling, shown until their wallpaper is ready.
     private var gaveUp = Set<UInt32>()
     private var ceiling: Task<Void, Never>?
+    /// Keeps the independent still windows in step with topology and source-window changes.
+    var onUpdated: (@MainActor () -> Void)?
 
     /// `pins` lists the displays that follow Spaces now; `holding` says whether the switch hold
     /// still covers a display, which for a web page or a clip is how its readiness shows.
@@ -188,6 +190,12 @@ final class WallpaperSpacePinning {
     /// idempotent: call it whenever the desktop, the choices, a switch or the windows changed.
     func update() {
         let pins = mover == nil || observer == nil ? [:] : self.pins()
+        // A hold belongs to the desktop that was loading. Carrying it across a Space
+        // change would hide the destination's already prepared window as it arrives.
+        for (display, pin) in pins where lastPins[display]?.space != pin.space {
+            concealedSince[display] = nil
+            gaveUp.remove(display)
+        }
         lastPins = pins
         let windows = windows()
         let concealed = displaysToConceal(pins, windows: windows)
@@ -218,6 +226,7 @@ final class WallpaperSpacePinning {
         let live = Set(windows.map(\.number))
         pinnedWindows.formIntersection(live)
         concealedWindows.formIntersection(live)
+        onUpdated?()
     }
 
     /// Where a window showing `wallpaper` belongs: the desktops chosen for it, else the current
@@ -254,13 +263,20 @@ final class WallpaperSpacePinning {
     /// where it belongs.
     private func windowWillOpen(_ note: Notification) {
         guard mover != nil,
-              note.userInfo?[WallpaperSwitchHoldNotification.reasonKey] as? String
-                == WallpaperSwitchHoldNotification.Reason.open.rawValue,
+              let reason = note.userInfo?[WallpaperSwitchHoldNotification.reasonKey] as? String,
+              reason == "preload" || reason == WallpaperSwitchHoldNotification.Reason.open.rawValue,
               let display = (note.userInfo?[WallpaperSwitchHoldNotification.displayIDKey] as? NSNumber)?.uint32Value,
               lastPins[display] != nil, let window = openedWindow(note) else { return }
         window.joinsAllSpaces = false
         pinnedWindows.insert(window.number)
-        if concealedSince[display] != nil, concealedWindows.insert(window.number).inserted {
+        guard let pin = lastPins[display] else { return }
+        let placement = Self.placement(of: window.wallpaperID, in: pin)
+        if reason == "preload", let mover {
+            if let spaces = placement.spaces { Self.put(window.number, on: spaces, current: pin.space, mover: mover) }
+            if !placement.onCurrentDesktop { awayWindows.insert(window.number) }
+        }
+        if placement.onCurrentDesktop, concealedSince[display] != nil,
+           concealedWindows.insert(window.number).inserted {
             window.setConcealed(true, fade: 0)
         }
     }
@@ -343,7 +359,7 @@ struct SystemPinnableWindow: WallpaperPinnableWindow {
         guard let layer = note.object as? CALayer,
               let window = (layer.delegate as? NSView)?.window
                 ?? NSApp.windows.first(where: { $0.contentView?.layer === layer }) else { return nil }
-        return SystemPinnableWindow(window: window)
+        return SystemPinnableWindow(window: window, wallpaperID: note.userInfo?["wallpaperID"] as? String)
     }
 
     var number: Int { window.windowNumber }

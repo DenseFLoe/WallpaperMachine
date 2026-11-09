@@ -891,10 +891,22 @@ engine to redo, and when.
   `engine::actor::space_parking_tests` (parking a scene that has drawn instead of replacing it,
   running it again with its handle and no refresh job, replacing in place as before when nothing
   is kept, closing on a shorter list, a new size, an unplugged display and `close_all`, and a
-  global resume leaving it paused) and the bridge's `tests::space_parking` and
+  global resume leaving it paused, and video/web visits retaining all prepared scene windows
+  without loading them again) and the bridge's `tests::space_parking` and
   `engine::facade::first_frame_tests::a_wallpaper_the_display_keeps_parked_is_not_awaited`. A parked scene
   that came back is never waited on for a first frame it does not report again, which would end
-  in the 90-second rollback. Device-free; no window or desktop.
+  in the 90-second rollback. `WallpaperSpacePinningTests` also covers a loading hold not
+  following a Space change onto a prepared desktop, and preparation on a different desktop
+  remaining visible. Explicit display destruction and unload still release the retained windows;
+  `performance_settings::unload_reports_a_failure_to_release_prepared_desktops_and_can_retry`
+  covers release errors and retry. Device-free; no window or desktop.
+- **Repeated desktop wallpapers have independent transition pictures** —
+  `WallpaperSpaceReplicasTests` covers A–B–A–B placement before presentation, A–B–C–D creating no
+  replicas, one shared image per wallpaper/display, event-only refresh, memory/choice cleanup,
+  bounded image memory, refused placement and stale/cancelled captures. Native video and web
+  lifecycle tests cover reading kept/preloaded instances without resuming or reopening them.
+  These inject the windows and Space mover: real WindowServer stacking, swipe smoothness and
+  compositor memory still require an explicitly authorized desktop check.
 - **Download-speed sampling** — `DownloadTelemetryTests` in `Tests/Unit/Workshop/`:
   real `nettop` streaming over a private PTY with local-socket traffic; CRLF and
   split line endings. LF-only fixtures do not verify live delivery.
