@@ -2440,8 +2440,14 @@ impl<E: EngineFacade + Clone> Message<messages::PreloadDesktopWallpaper> for Bri
         let ticket = self.load_journal.begin(vec![(msg.wallpaper_id.clone(), msg.display_id)]);
         let target = (msg.display_id, msg.wallpaper_id.clone());
         let mut config = self.state.app_config.clone();
+        let selector = config.monitors.iter().find(|monitor| {
+            monitor.enabled && !monitor.mode.eq_ignore_ascii_case(MIRROR_DISPLAY_MODE)
+                && monitor.selector.to_selector().resolve_display(&displays)
+                    .is_some_and(|display| display.desc.display_id == msg.display_id)
+        }).map(|monitor| monitor.selector.clone()).map_or_else(
+            || self.resolve_operation_selector(&msg.display_id.to_string(), &displays), Ok)?;
         config.monitors = vec![crate::config::MonitorCfg {
-            selector: crate::config::SerializedSelector::LiveDisplayId { display_id: msg.display_id },
+            selector,
             wallpaper: Some(msg.wallpaper_id), ..Default::default()
         }];
         let inputs = || ActivationInputs { app_config: &config, paused: true, audio_suppressed: true,
